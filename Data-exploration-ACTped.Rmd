@@ -1,0 +1,475 @@
+---
+title: "**LabPAD**"
+subtitle: "**Lab**oratório de **P**rocessamento e **A**nálises de **D**ados"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+     theme: flatly
+     highlight: kate
+     self_contained: true
+    # code_folding: hide
+    # toc: true
+    # toc_float: 
+    #   collapsed: false
+    #   smooth_scroll: false
+runtime: shiny
+---
+
+
+```{r Librerias, include=FALSE}
+
+library(openxlsx)
+library(ggpubr)
+library(factoextra)
+library(FactoMineR)
+library(dplyr)
+library(tidyverse)
+library(gridExtra)
+library(rsconnect)
+library(DT)
+library(ggplot2)
+library(flexdashboard)
+library(shiny)
+
+
+
+```
+
+
+
+
+```{r Cluster Selection,  echo=FALSE}
+
+inputPanel(
+  
+    cluster <- numericInput("cluster","Cluster: ",
+                          2,
+                          min=2,max=4)
+  
+)
+
+```
+
+
+
+
+```{r Leer Variaveis,  echo=FALSE}
+
+inputPanel(
+  
+
+# variável categóricas I
+var.catI <- selectInput("var.catI", 
+                       "Características Clínicas: ",
+                       choices = c("Sex"="Sex",
+                                   "ACT Family History"="ACT Family History",               
+                                   "Neoplasia.Family.history"="Neoplasia.Family.history",        
+                                   "Clinical.presentation"="Clinical.presentation",
+                                   "Hypertension"="Hypertension",
+                                   "Type Secreting"  ="Type Secreting",
+                                   "Adjuvant.Chemotherapy"="Adjuvant.Chemotherapy"), multiple = FALSE),
+
+# variável categóricas II
+var.catII <- selectInput("var.catII", 
+                         "Classificações de Tumores: ",
+                         choices = c("Recurrence Post-Surgery"="Recurrence Post-Surgery",
+                                   "Outcome" = "Outcome",
+                                   "Classification Wieneke"  ="Classification Wieneke",
+                                   "Classification Weiss" ="Classification Weiss" ,
+                                   "Stage IPACTR" ="Stage IPACTR",
+                                   "Germline P53" ="Germline P53",
+                                   "Catenin Mutation" ="Catenin Mutation",
+                                   "Other.tumors" ="Other.tumors"
+                                   ), multiple = FALSE),
+
+
+# varaivel numericas  
+var.numer <-  selectInput("var.numer", 
+                         "Variável Numéricas: ",
+                         choices = c("Age at Diagnosis(years)"="Age at Diagnosis(years)",
+                                     "Tumor Weight (g)" = "Tumor Weight (g)"  ,
+                                   "Disease Free Survival (years)"="Disease Free Survival (years)",
+                                   "Overall Survival (years)" = "Overall Survival (years)",
+                                   "VDR-Expression (mRNA)" ="VDR-Expression (mRNA)" ,
+                                   "IHQ" ="IHQ"), multiple = FALSE)
+  
+)
+  
+
+```
+
+
+```{r Leitura de Dados, echo=FALSE, warning=FALSE, error=FALSE}
+
+# Load data
+
+# valores M
+mvalues <- read.table("MValues-Probes-Selected.csv",
+                      sep = "\t",
+                      header = TRUE)
+
+# clinical Data
+clinical <- read.xlsx("PData_VDR_EPIC_Junier_22AUG2020.xlsx",
+                     sheet = 1)
+
+clinical <- clinical[,c(2,1,3:ncol(clinical))]
+
+
+clinical <- clinical[,c(2,1,3:ncol(clinical))]
+clinical <- clinical[,-c(10,20,24)]
+
+names(clinical)[4] <- "Age at Diagnosis(years)"
+names(clinical)[5] <- "ACT Family History"
+clinical[,6] <- gsub(" ","", clinical[,6])
+names(clinical)[9] <- "Type Secreting"
+clinical$Adjuvant.Chemotherapy <- gsub(" ","",clinical$Adjuvant.Chemotherapy)
+names(clinical)[11] <- "Tumor Weight (g)"
+clinical$`Tumor Weight (g)` <- as.numeric(as.character(clinical$`Tumor Weight (g)`))
+clinical[which(is.na(clinical$`Tumor Weight (g)`)),11] <- mean(clinical[-which(is.na(clinical$`Tumor Weight (g)`)),11])/4
+names(clinical)[12] <- "Classification Weiss"
+names(clinical)[13] <- "Classification Wieneke"
+names(clinical)[14] <- "Stage IPACTR"
+names(clinical)[15] <- "Germline P53"
+clinical$`Germline P53` <- gsub(" ","",clinical$`Germline P53`)
+names(clinical)[16] <- "Catenin Mutation"
+names(clinical)[18] <- "Recurrence Post-Surgery"
+names(clinical)[19] <- "Disease Free Survival (years)"
+names(clinical)[20] <- "Overall Survival (years)"
+names(clinical)[22] <- "VDR-Expression (mRNA)"
+clinical[which(is.na(clinical$`VDR-Expression (mRNA)`)),22] <- mean(clinical[-which(is.na(clinical$`VDR-Expression (mRNA)`)),22])/4
+names(clinical)[23] <- "IHQ"
+
+
+# probes important
+probes <- read.xlsx("pACT DMP 04-07-21.xlsx",
+                    sheet = 1)
+
+# Mvalues of important probes from Rankeitor 
+aux1 <- mvalues
+
+# First analysis BootStrap Original
+group <- read.table("pACT.Grouping.csv",
+                    header = FALSE,
+                    sep="\t")
+names(group) <- c("EPIC.Methylation.ID","Cluster")
+
+
+
+#Join probes with clinical data from patients
+aux2 <- inner_join(clinical, aux1,
+                   by="EPIC.Methylation.ID")
+
+
+
+
+```
+
+
+
+```{r Analises, echo= FALSE}
+
+
+# Painel que mostra as analises que estão implementadas
+
+tabsetPanel(type = "tabs",
+               tabPanel("Bootstrap-Clustering",
+                        plotOutput("group"),
+                        dataTableOutput("table"),
+                        dataTableOutput("tableB")),
+             tabPanel("KMean-Clustering", 
+                                  plotOutput("kmean"), 
+                                  plotOutput("plotI"),
+                                  dataTableOutput("tableI"),
+                                  dataTableOutput("tableII")
+                        ))
+
+```
+
+
+```{r Bootstrap, echo= FALSE}
+
+original <- reactive({
+  
+        original <- inner_join(group, clinical, by = "EPIC.Methylation.ID")
+        names(original)[2] <- "Cluster"
+original
+
+})
+
+output$group <- renderPlot({
+
+# variaveis categorias I: Variavles Clinicas  
+      A <- as.data.frame(table(original()[,2], 
+                 original()[,which(names(original())==input$var.catI)]))
+      A <- data.frame(A)
+      names(A) <- c("Cluster",input$var.catI,"Count")
+
+      A.p <- ggplot(A, aes(x=Cluster, 
+                       y=Count, 
+                       fill=A[,which(names(A)==input$var.catI)])) +
+                       geom_col(position = "dodge") +
+                       labs(title = input$var.catI,
+                            x = "Cluster",
+                            y = "Count") +
+                       scale_fill_brewer(palette="Set1") +
+                       theme_test() +
+                       theme(legend.position="top",
+                             legend.title = element_blank())
+                             
+
+B <- as.data.frame(table(original()[,2], 
+                 original()[,which(names(original())==input$var.catII)]))
+      B <- data.frame(B)
+      names(B) <- c("Cluster",input$var.catII,"Count")
+
+      B.p <- ggplot(B, aes(x=Cluster, 
+                       y=Count, 
+                       fill=B[,which(names(B)==input$var.catII)])) +
+                       geom_col(position = "dodge") +
+                               labs(title = input$var.catII,
+                                    x = "Cluster",
+                                    y = "Count") +
+                               scale_fill_brewer(palette="Set2") +
+                               theme_test() +
+                               theme(legend.position="top",
+                                     legend.title = element_blank())
+      
+# variaveis categorias III: Classificação de Tumores
+      
+C <- data.frame(original()[,2],
+                 original()[,which(names(original())==input$var.numer)])
+
+names(C) <- c("Cluster","Mean")
+
+c.i   <- subset(C, Cluster == "Group1")
+if(nrow(c.i) > 1){ c.i <- data.frame(Cluster = unique(c.i$Cluster), mean(c.i$Mean))}
+names(c.i) <- c("Cluster","Mean")
+
+c.ii  <- subset(C, Cluster == "Group2")
+if(nrow(c.ii) > 1){c.ii <- data.frame(Cluster = unique(c.ii$Cluster), mean(c.ii$Mean))}
+names(c.ii) <- c("Cluster","Mean")
+
+D <- rbind(c.i,c.ii)
+
+D.p <- ggplot(D, aes(x=Cluster,
+                 y=Mean,
+                 fill=as.factor(Cluster))) +
+                 geom_col(position = "dodge") +
+                         labs(title = input$var.numer,
+                              x = "Cluster",
+                              y = "Mean") +
+                         scale_fill_brewer(palette="Set3") +
+                         theme_test() +
+                         theme(legend.position="top",
+                               legend.title = element_blank())
+      
+grid.arrange(A.p,B.p, D.p, nrow=1, ncol=3)
+      
+      
+
+})
+
+output$table <- renderDataTable({
+  
+  H <- as.data.frame(table(original()[,2]))
+  names(H) <- c("Cluster","Patients")
+  
+datatable(H,
+          rownames = FALSE,
+          options = list(dom = 't',
+                         columnDefs = 
+                           list(list(className = 'dt-center', 
+                                     targets = "_all")))
+ )
+
+
+})
+
+
+output$tableB <- renderDataTable({
+  
+datatable(original()[,c(2,3)],
+          rownames = FALSE,
+          options = list(columnDefs = 
+                           list(list(className = 'dt-center', 
+                                     targets = "_all"))))
+
+
+})
+
+
+
+
+
+```
+
+
+
+
+```{r Kmeans, echo= FALSE}
+
+# K-Mean Clustering
+set.seed(1107)
+
+res.km <- reactive({
+
+res.km <- kmeans(scale(aux2[, c(24:ncol(aux2))]), 
+                 input$cluster, 
+                 nstart = 25)
+res.km
+
+})
+
+output$kmean <- renderPlot({
+
+factoextra::fviz_cluster(res.km(), 
+             data = aux2[, c(24:ncol(aux2))],
+             geom = "point",
+             ellipse.type = "convex", 
+             palette = "Dark2",
+             ggtheme = theme_test()
+             ) 
+
+})
+
+
+# Plot do cluster
+
+aux3 <- reactive({
+  
+        aux3 <- data.frame(Cluster = res.km()[["cluster"]],aux2)
+        names(aux3)[2:24] <- names(clinical)
+        aux3$Cluster <- as.factor(aux3$Cluster)
+aux3
+
+})
+
+
+output$plotI <- renderPlot({
+
+# variaveis categorias I: Variavles Clinicas  
+      A <- as.data.frame(table(aux3()[,1], 
+                 aux3()[,which(names(aux3())==input$var.catI)]))
+      A <- data.frame(A)
+      names(A) <- c("Cluster",input$var.catI,"Count")
+
+      A.p <- ggplot(A, aes(x=Cluster, 
+                       y=Count, 
+                       fill=A[,which(names(A)==input$var.catI)])) +
+                       geom_col(position = "dodge") +
+                       labs(title = input$var.catI,
+                            x = "Cluster",
+                            y = "Count") +
+                       scale_fill_brewer(palette="Set1") +
+                       theme_test() +
+                       theme(legend.position="top",
+                             legend.title = element_blank())
+
+# variaveis categorias II: Classificação de Tumores
+      B <- as.data.frame(table(aux3()[,1], 
+                 aux3()[,which(names(aux3())==input$var.catII)]))
+      B <- data.frame(B)
+      names(B) <- c("Cluster",input$var.catII,"Count")
+
+      B.p <- ggplot(B, aes(x=Cluster, 
+                       y=Count, 
+                       fill=B[,which(names(B)==input$var.catII)])) +
+                       geom_col(position = "dodge") +
+                               labs(title = input$var.catII,
+                                    x = "Cluster",
+                                    y = "Count") +
+                               scale_fill_brewer(palette="Set2") +
+                               theme_test() +
+                               theme(legend.position="top",
+                                     legend.title = element_blank())
+      
+# variaveis categorias III: Classificação de Tumores
+      
+C <- data.frame(aux3()$Cluster, 
+                 aux3()[,which(names(aux3())==input$var.numer)])
+
+names(C) <- c("Cluster","Mean")
+
+c.i   <- subset(C, Cluster == input$cluster-(input$cluster-1))
+if(nrow(c.i) > 1){ c.i <- data.frame(Cluster = unique(c.i$Cluster), mean(c.i$Mean))}
+names(c.i) <- c("Cluster","Mean")
+
+c.ii  <- subset(C, Cluster == input$cluster-(input$cluster-2))
+if(nrow(c.ii) > 1){c.ii <- data.frame(Cluster = unique(c.ii$Cluster), mean(c.ii$Mean))}
+names(c.ii) <- c("Cluster","Mean")
+
+c.iii <- subset(C, Cluster == input$cluster-(input$cluster-3))
+if(nrow(c.iii) > 1){c.iii <- data.frame(Cluster = unique(c.iii$Cluster), mean(c.iii$Mean))}
+names(c.iii) <- c("Cluster","Mean")
+
+c.iv  <- subset(C, Cluster == input$cluster-(input$cluster-4))
+if(nrow(c.iv) > 1){c.iv <- data.frame(Cluster = unique(c.iv$Cluster), mean(c.iv$Mean))}
+names(c.iv) <- c("Cluster","Mean")
+
+c.v  <- subset(C, Cluster == input$cluster-(input$cluster-5))
+if(nrow(c.v) > 1){c.v <- data.frame(Cluster = unique(c.v$Cluster), mean(c.v$Mean))}
+names(c.v) <- c("Cluster","Mean")
+
+D <- rbind(c.i,c.ii,c.iii,c.iv,c.v)
+
+     D.p <- ggplot(D, aes(x=as.factor(Cluster), 
+                       y=Mean, 
+                       fill=as.factor(Cluster))) +
+                       geom_col(position = "dodge") +
+                               labs(title = input$var.numer,
+                                    x = "Cluster",
+                                    y = "Mean") +
+                               scale_fill_brewer(palette="Set3") +
+                               theme_test() +
+                               theme(legend.position="top",
+                                     legend.title = element_blank())
+      
+      
+      
+  
+grid.arrange(A.p,B.p, D.p, nrow=1, ncol=3)
+                    
+})
+
+
+output$tableI <- renderDataTable({
+  
+  H <- as.data.frame(table(aux3()[,1]))
+  names(H) <- c("Cluster","Patients")
+  
+datatable(H,
+          rownames = FALSE,
+          options = list(dom = 't',
+                         columnDefs = 
+                           list(list(className = 'dt-center', 
+                                     targets = "_all")))
+          )
+
+
+})
+
+
+output$tableII <- renderDataTable({
+  
+datatable(aux3()[,c(1,2)],
+          rownames = FALSE,
+          options = list(columnDefs = 
+                           list(list(className = 'dt-center', 
+                                     targets = "_all"))))
+
+
+})
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
